@@ -426,23 +426,23 @@ def parse_command(text: str, source_id: str) -> str:
             info = get_stock_price(stock_id)
             return format_stock_info(info)
 
-    # 追蹤股票
-    if text.startswith("追蹤 ") or text.startswith("追蹤"):
-        stock_id = text.replace("追蹤 ", "").replace("追蹤", "").strip()
-        if stock_id.isdigit() and len(stock_id) == 4:
-            return add_watchlist(source_id, stock_id)
-        return "❌ 格式錯誤\n範例：追蹤 2330"
+    # 追蹤清單（要放在「追蹤」前面）
+    if text in ["追蹤清單", "我的追蹤", "清單"]:
+        return get_watchlist(source_id)
 
-    # 取消追蹤
+    # 取消追蹤（要放在「追蹤」前面）
     if text.startswith("取消追蹤 ") or text.startswith("取消追蹤"):
         stock_id = text.replace("取消追蹤 ", "").replace("取消追蹤", "").strip()
         if stock_id.isdigit() and len(stock_id) == 4:
             return remove_watchlist(source_id, stock_id)
         return "❌ 格式錯誤\n範例：取消追蹤 2330"
 
-    # 追蹤清單
-    if text in ["追蹤清單", "我的追蹤", "清單"]:
-        return get_watchlist(source_id)
+    # 追蹤股票
+    if text.startswith("追蹤 ") or text.startswith("追蹤"):
+        stock_id = text.replace("追蹤 ", "").replace("追蹤", "").strip()
+        if stock_id.isdigit() and len(stock_id) == 4:
+            return add_watchlist(source_id, stock_id)
+        return "❌ 格式錯誤\n範例：追蹤 2330"
 
     # 到價通知
     if text.startswith("通知"):
