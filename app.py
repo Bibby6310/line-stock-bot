@@ -142,6 +142,26 @@ def format_stock_info(info: dict) -> str:
 # AI 問答
 # ============================================================
 def ask_ai(question: str) -> str:
+    # 優先用 Gemini（免費）
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+    if GEMINI_API_KEY:
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+            resp = requests.post(
+                url,
+                headers={"Content-Type": "application/json"},
+                json={
+                    "contents": [{"parts": [{"text": f"你是一個股票投資助手，用繁體中文回答，回答簡潔控制在300字以內。\n\n問題：{question}"}]}],
+                },
+                timeout=30,
+            )
+            data = resp.json()
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        except Exception as e:
+            logger.error(f"Gemini 問答失敗: {e}")
+            return "🤖 AI 暫時無法回應，請稍後再試。"
+
+    # 備用：OpenAI
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
     if OPENAI_API_KEY:
         try:
@@ -167,6 +187,7 @@ def ask_ai(question: str) -> str:
             logger.error(f"AI 問答失敗: {e}")
             return "🤖 AI 暫時無法回應，請稍後再試。"
 
+    # 備用：Anthropic Claude
     anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
     if anthropic_key:
         try:
