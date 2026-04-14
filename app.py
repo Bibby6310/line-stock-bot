@@ -416,7 +416,7 @@ def parse_command(text: str, source_id: str) -> str:
     if text.lower() in ["help", "說明", "指令", "幫助", "?"]:
         return HELP_TEXT
 
-    if text.isdigit() and len(text) == 4:
+    if text.isdigit() and len(text) <= 6:
         info = get_stock_price(text)
         return format_stock_info(info)
 
