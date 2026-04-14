@@ -141,49 +141,44 @@ def format_stock_info(info: dict) -> str:
 # AI 問答
 # ============================================================
 def ask_ai(question: str) -> str:
-    # 優先用 Gemini（免費）
+    # 優先用 Groq（免費、快速）
+    GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+    if GROQ_API_KEY:
+        try:
+            resp = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [
+                        {"role": "system", "content": "你是一個股票投資助手，用繁體中文回答。回答簡潔，控制在 300 字以內。"},
+                        {"role": "user", "content": question},
+                    ],
+                    "max_tokens": 500,
+                },
+                timeout=30,
+            )
+            data = resp.json()
+            logger.info(f"Groq 回應狀態: {resp.status_code}")
+            if "choices" in data:
+                return data["choices"][0]["message"]["content"]
+            elif "error" in data:
+                logger.error(f"Groq 錯誤: {data['error']}")
+                return f"🤖 AI 錯誤：{data['error'].get('message', '未知錯誤')}"
+            else:
+                return "🤖 AI 回應格式異常，請稍後再試。"
+        except Exception as e:
+            logger.error(f"Groq 問答失敗: {e}")
+            return "🤖 AI 暫時無法回應，請稍後再試。"
+
+    # 備用：Gemini
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
     if GEMINI_API_KEY:
-        # 先列出可用模型
         try:
-            list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
-            list_resp = requests.get(list_url, timeout=10)
-            models_data = list_resp.json()
-            model_names = [m.get("name", "") for m in models_data.get("models", [])]
-            logger.info(f"Gemini 可用模型: {model_names[:15]}")
-        except Exception as e:
-            logger.error(f"列出模型失敗: {e}")
-            model_names = []
-
-        # 自動選擇可用的模型
-        preferred_models = [
-            "models/gemini-2.0-flash",
-            "models/gemini-1.5-flash",
-            "models/gemini-1.5-flash-latest",
-            "models/gemini-pro",
-            "models/gemini-1.0-pro",
-        ]
-        chosen_model = None
-        for m in preferred_models:
-            if m in model_names:
-                chosen_model = m
-                break
-
-        if not chosen_model and model_names:
-            # 找任何一個支援 generateContent 的模型
-            for m in model_names:
-                if "gemini" in m:
-                    chosen_model = m
-                    break
-
-        if not chosen_model:
-            logger.error(f"找不到可用的 Gemini 模型")
-            return "🤖 Gemini 沒有可用模型，請確認 API Key。"
-
-        logger.info(f"使用模型: {chosen_model}")
-
-        try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/{chosen_model}:generateContent?key={GEMINI_API_KEY}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
             resp = requests.post(
                 url,
                 headers={"Content-Type": "application/json"},
@@ -193,14 +188,10 @@ def ask_ai(question: str) -> str:
                 timeout=30,
             )
             data = resp.json()
-            logger.info(f"Gemini 回應: {json.dumps(data, ensure_ascii=False)[:500]}")
             if "candidates" in data:
                 return data["candidates"][0]["content"]["parts"][0]["text"]
             elif "error" in data:
-                logger.error(f"Gemini 錯誤: {data['error']}")
                 return f"🤖 AI 錯誤：{data['error'].get('message', '未知錯誤')}"
-            else:
-                return "🤖 AI 回應格式異常，請稍後再試。"
         except Exception as e:
             logger.error(f"Gemini 問答失敗: {e}")
             return "🤖 AI 暫時無法回應，請稍後再試。"
