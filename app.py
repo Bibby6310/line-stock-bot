@@ -1,5 +1,5 @@
 """
-LINE Stock Bot - 台股查詢、到價通知、AI 問答、定時推播
+LINE Stock Bot - 台股查詢、到價通知、AI 問答、定時推播、自訂追蹤清單
 """
 
 import os
@@ -44,13 +44,19 @@ def load_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r") as f:
             return json.load(f)
-    return {"groups": [], "alerts": [], "watchlist": {}}
+    return {"groups": [], "alerts": [], "watchlist": {}, "subscribers": []}
 
 def save_data(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 bot_data = load_data()
+
+# 確保舊資料有新欄位
+if "watchlist" not in bot_data:
+    bot_data["watchlist"] = {}
+if "subscribers" not in bot_data:
+    bot_data["subscribers"] = []
 
 # ============================================================
 # 台股查詢
@@ -249,25 +255,128 @@ def send_push_message(target_id: str, text: str):
 
 
 # ============================================================
-# 定時推播
+# 追蹤清單 & 每日盤後推播
 # ============================================================
-def daily_market_summary():
-    hot_stocks = ["2330", "2317", "2454", "2603", "0050"]
-    lines = ["📋 每日盤後摘要\n━━━━━━━━━━━━━━"]
+def add_watchlist(source_id: str, stock_id: str) -> str:
+    """新增股票到追蹤清單"""
+    if source_id not in bot_data["watchlist"]:
+        bot_data["watchlist"][source_id] = []
 
-    for sid in hot_stocks:
+    if stock_id in bot_data["watchlist"][source_id]:
+        return f"⚠️ {stock_id} 已經在你的追蹤清單中了"
+
+    # 驗證股票代碼是否有效
+    info = get_stock_price(stock_id)
+    if not info["success"]:
+        return f"❌ 找不到股票代碼 {stock_id}"
+
+    bot_data["watchlist"][source_id].append(stock_id)
+
+    # 同時記錄為訂閱者（用於每日推播）
+    if source_id not in bot_data["subscribers"]:
+        bot_data["subscribers"].append(source_id)
+
+    save_data(bot_data)
+    return f"✅ 已追蹤 {info['name']}（{stock_id}）\n每天收盤後會自動推播行情給你！"
+
+
+def remove_watchlist(source_id: str, stock_id: str) -> str:
+    """從追蹤清單移除股票"""
+    if source_id not in bot_data["watchlist"] or stock_id not in bot_data["watchlist"][source_id]:
+        return f"⚠️ {stock_id} 不在你的追蹤清單中"
+
+    bot_data["watchlist"][source_id].remove(stock_id)
+
+    # 如果清單空了，移除訂閱者
+    if not bot_data["watchlist"][source_id]:
+        del bot_data["watchlist"][source_id]
+        if source_id in bot_data["subscribers"]:
+            bot_data["subscribers"].remove(source_id)
+
+    save_data(bot_data)
+    return f"✅ 已取消追蹤 {stock_id}"
+
+
+def get_watchlist(source_id: str) -> str:
+    """查看追蹤清單"""
+    if source_id not in bot_data["watchlist"] or not bot_data["watchlist"][source_id]:
+        return "📭 你還沒有追蹤任何股票\n\n輸入「追蹤 2330」開始追蹤"
+
+    lines = ["📋 你的追蹤清單：\n━━━━━━━━━━━━━━"]
+    for sid in bot_data["watchlist"][source_id]:
         info = get_stock_price(sid)
         if info["success"]:
             price = info["price"]
             change = price - info["yesterday"]
             pct = (change / info["yesterday"] * 100) if info["yesterday"] else 0
             arrow = "🔴" if change > 0 else ("🟢" if change < 0 else "⚪")
-            lines.append(f"{arrow} {info['name']} {price:.2f} ({change:+.2f}, {pct:+.1f}%)")
+            lines.append(f"{arrow} {info['name']}（{sid}）{price:.2f} ({change:+.2f}, {pct:+.1f}%)")
+        else:
+            lines.append(f"❓ {sid}（查詢失敗）")
 
-    msg = "\n".join(lines)
+    lines.append(f"\n每日收盤後自動推播 ✅")
+    return "\n".join(lines)
 
+
+def daily_custom_push():
+    """每日盤後推播 - 根據每個用戶/群組的追蹤清單推播"""
+    logger.info("📡 開始每日盤後推播...")
+
+    for source_id, stock_ids in bot_data.get("watchlist", {}).items():
+        if not stock_ids:
+            continue
+
+        today = datetime.now().strftime("%m/%d")
+        lines = [f"📋 {today} 盤後摘要\n━━━━━━━━━━━━━━"]
+
+        total_change = 0
+        count = 0
+
+        for sid in stock_ids:
+            info = get_stock_price(sid)
+            if info["success"]:
+                price = info["price"]
+                change = price - info["yesterday"]
+                pct = (change / info["yesterday"] * 100) if info["yesterday"] else 0
+                arrow = "🔴" if change > 0 else ("🟢" if change < 0 else "⚪")
+                lines.append(
+                    f"{arrow} {info['name']}（{sid}）\n"
+                    f"   收盤 {price:.2f} ｜ {change:+.2f}（{pct:+.1f}%）\n"
+                    f"   高 {info['high']} / 低 {info['low']} / 量 {info['volume']}張"
+                )
+                total_change += pct
+                count += 1
+
+        if count > 0:
+            avg = total_change / count
+            if avg > 0:
+                summary = f"📈 平均漲幅 {avg:+.1f}%"
+            elif avg < 0:
+                summary = f"📉 平均跌幅 {avg:+.1f}%"
+            else:
+                summary = "📊 整體持平"
+            lines.append(f"\n{summary}")
+
+        msg = "\n".join(lines)
+        send_push_message(source_id, msg)
+        logger.info(f"📤 已推播給 {source_id[:10]}...（{len(stock_ids)} 檔股票）")
+
+    # 也推播預設熱門股到群組（給沒有自訂清單的群組）
+    default_stocks = ["2330", "2317", "2454", "2603", "0050"]
     for group_id in bot_data.get("groups", []):
-        send_push_message(group_id, msg)
+        if group_id not in bot_data.get("watchlist", {}):
+            today = datetime.now().strftime("%m/%d")
+            lines = [f"📋 {today} 盤後摘要\n━━━━━━━━━━━━━━"]
+            for sid in default_stocks:
+                info = get_stock_price(sid)
+                if info["success"]:
+                    price = info["price"]
+                    change = price - info["yesterday"]
+                    pct = (change / info["yesterday"] * 100) if info["yesterday"] else 0
+                    arrow = "🔴" if change > 0 else ("🟢" if change < 0 else "⚪")
+                    lines.append(f"{arrow} {info['name']} {price:.2f} ({change:+.2f}, {pct:+.1f}%)")
+            msg = "\n".join(lines)
+            send_push_message(group_id, msg)
 
 
 # ============================================================
@@ -276,30 +385,29 @@ def daily_market_summary():
 HELP_TEXT = """📖 指令說明
 ━━━━━━━━━━━━━━
 📊 查股票：
-  輸入股票代碼，例如：
   「2330」或「查 2330」
 
 🔔 到價通知：
   「通知 2330 > 600」
-  → 台積電漲到 600 通知
   「通知 2330 < 500」
-  → 台積電跌到 500 通知
 
-📋 查看通知：
+📋 查看/刪除通知：
   「我的通知」
+  「刪除通知」
 
-🗑 刪除通知：
-  「刪除通知」→ 清除全部
+⭐ 追蹤股票（每日推播）：
+  「追蹤 2330」→ 加入追蹤
+  「取消追蹤 2330」→ 移除
+  「追蹤清單」→ 查看清單
 
 🤖 AI 問答：
   「問 台積電未來展望」
-  「問 什麼是本益比」
 
 📈 熱門股：
-  「熱門」→ 查看熱門股行情
+  「熱門」
 
 ❓ 說明：
-  「help」或「說明」"""
+  「說明」"""
 
 
 def parse_command(text: str, source_id: str) -> str:
@@ -318,6 +426,25 @@ def parse_command(text: str, source_id: str) -> str:
             info = get_stock_price(stock_id)
             return format_stock_info(info)
 
+    # 追蹤股票
+    if text.startswith("追蹤 ") or text.startswith("追蹤"):
+        stock_id = text.replace("追蹤 ", "").replace("追蹤", "").strip()
+        if stock_id.isdigit() and len(stock_id) == 4:
+            return add_watchlist(source_id, stock_id)
+        return "❌ 格式錯誤\n範例：追蹤 2330"
+
+    # 取消追蹤
+    if text.startswith("取消追蹤 ") or text.startswith("取消追蹤"):
+        stock_id = text.replace("取消追蹤 ", "").replace("取消追蹤", "").strip()
+        if stock_id.isdigit() and len(stock_id) == 4:
+            return remove_watchlist(source_id, stock_id)
+        return "❌ 格式錯誤\n範例：取消追蹤 2330"
+
+    # 追蹤清單
+    if text in ["追蹤清單", "我的追蹤", "清單"]:
+        return get_watchlist(source_id)
+
+    # 到價通知
     if text.startswith("通知"):
         try:
             parts = text.replace("通知", "").strip().split()
@@ -435,7 +562,7 @@ def handle_follow(event):
         api = MessagingApi(api_client)
         api.reply_message(ReplyMessageRequest(
             reply_token=event.reply_token,
-            messages=[TextMessage(text="👋 你好！我是股票小幫手\n\n輸入「說明」查看所有功能！")]
+            messages=[TextMessage(text="👋 你好！我是股票小幫手\n\n輸入「說明」查看所有功能！\n\n💡 輸入「追蹤 2330」可以每天收盤後收到股票行情！")]
         ))
 
 
@@ -443,8 +570,11 @@ def handle_follow(event):
 # 背景排程
 # ============================================================
 def run_scheduler():
+    # 每 1 分鐘檢查到價通知（盤中）
     schedule.every(1).minutes.do(check_alerts)
-    schedule.every().day.at("14:30").do(daily_market_summary)
+
+    # 每日下午 1:35 推播盤後摘要（台股 1:30 收盤）
+    schedule.every().day.at("13:35").do(daily_custom_push)
 
     while True:
         schedule.run_pending()
@@ -457,6 +587,10 @@ def run_scheduler():
 if __name__ == "__main__":
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
+    logger.info("📡 排程啟動完成")
+
+    port = int(os.getenv("PORT", 8000))
+    app.run(host="0.0.0.0", port=port)
     logger.info("📡 排程啟動完成")
 
     port = int(os.getenv("PORT", 8000))
