@@ -142,8 +142,15 @@ def format_stock_info(info: dict) -> str:
 # ============================================================
 def ask_ai(question: str) -> str:
     # 優先用 Gemini（免費）
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+   GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
     if GEMINI_API_KEY:
+        try:
+            list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
+            list_resp = requests.get(list_url, timeout=10)
+            models = [m.get("name", "") for m in list_resp.json().get("models", [])]
+            logger.info(f"Gemini 可用模型: {models[:10]}")
+        except Exception as e:
+            logger.error(f"列出模型失敗: {e}")
         try:
             url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
             resp = requests.post(
