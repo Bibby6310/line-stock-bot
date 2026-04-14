@@ -52,7 +52,6 @@ def save_data(data):
 
 bot_data = load_data()
 
-# 確保舊資料有新欄位
 if "watchlist" not in bot_data:
     bot_data["watchlist"] = {}
 if "subscribers" not in bot_data:
@@ -155,7 +154,7 @@ def ask_ai(question: str) -> str:
                 },
                 timeout=30,
             )
-        data = resp.json()
+            data = resp.json()
             logger.info(f"Gemini 回應: {json.dumps(data, ensure_ascii=False)[:500]}")
             if "candidates" in data:
                 return data["candidates"][0]["content"]["parts"][0]["text"]
@@ -166,6 +165,7 @@ def ask_ai(question: str) -> str:
                 return "🤖 AI 回應格式異常，請稍後再試。"
         except Exception as e:
             logger.error(f"Gemini 問答失敗: {e}")
+            return "🤖 AI 暫時無法回應，請稍後再試。"
 
     # 備用：OpenAI
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
@@ -190,7 +190,7 @@ def ask_ai(question: str) -> str:
             data = resp.json()
             return data["choices"][0]["message"]["content"]
         except Exception as e:
-            logger.error(f"AI 問答失敗: {e}")
+            logger.error(f"OpenAI 問答失敗: {e}")
             return "🤖 AI 暫時無法回應，請稍後再試。"
 
     # 備用：Anthropic Claude
@@ -215,7 +215,7 @@ def ask_ai(question: str) -> str:
             data = resp.json()
             return data["content"][0]["text"]
         except Exception as e:
-            logger.error(f"AI 問答失敗: {e}")
+            logger.error(f"Claude 問答失敗: {e}")
             return "🤖 AI 暫時無法回應，請稍後再試。"
 
     return "🤖 尚未設定 AI API Key，請聯繫管理員。"
@@ -285,21 +285,18 @@ def send_push_message(target_id: str, text: str):
 # 追蹤清單 & 每日盤後推播
 # ============================================================
 def add_watchlist(source_id: str, stock_id: str) -> str:
-    """新增股票到追蹤清單"""
     if source_id not in bot_data["watchlist"]:
         bot_data["watchlist"][source_id] = []
 
     if stock_id in bot_data["watchlist"][source_id]:
         return f"⚠️ {stock_id} 已經在你的追蹤清單中了"
 
-    # 驗證股票代碼是否有效
     info = get_stock_price(stock_id)
     if not info["success"]:
         return f"❌ 找不到股票代碼 {stock_id}"
 
     bot_data["watchlist"][source_id].append(stock_id)
 
-    # 同時記錄為訂閱者（用於每日推播）
     if source_id not in bot_data["subscribers"]:
         bot_data["subscribers"].append(source_id)
 
@@ -308,13 +305,11 @@ def add_watchlist(source_id: str, stock_id: str) -> str:
 
 
 def remove_watchlist(source_id: str, stock_id: str) -> str:
-    """從追蹤清單移除股票"""
     if source_id not in bot_data["watchlist"] or stock_id not in bot_data["watchlist"][source_id]:
         return f"⚠️ {stock_id} 不在你的追蹤清單中"
 
     bot_data["watchlist"][source_id].remove(stock_id)
 
-    # 如果清單空了，移除訂閱者
     if not bot_data["watchlist"][source_id]:
         del bot_data["watchlist"][source_id]
         if source_id in bot_data["subscribers"]:
@@ -325,7 +320,6 @@ def remove_watchlist(source_id: str, stock_id: str) -> str:
 
 
 def get_watchlist(source_id: str) -> str:
-    """查看追蹤清單"""
     if source_id not in bot_data["watchlist"] or not bot_data["watchlist"][source_id]:
         return "📭 你還沒有追蹤任何股票\n\n輸入「追蹤 2330」開始追蹤"
 
@@ -346,7 +340,6 @@ def get_watchlist(source_id: str) -> str:
 
 
 def daily_custom_push():
-    """每日盤後推播 - 根據每個用戶/群組的追蹤清單推播"""
     logger.info("📡 開始每日盤後推播...")
 
     for source_id, stock_ids in bot_data.get("watchlist", {}).items():
@@ -388,10 +381,9 @@ def daily_custom_push():
         send_push_message(source_id, msg)
         logger.info(f"📤 已推播給 {source_id[:10]}...（{len(stock_ids)} 檔股票）")
 
-    # 也推播預設熱門股到群組（給沒有自訂清單的群組）
-    default_stocks = ["2330", "2317", "2454", "2603", "0050"]
     for group_id in bot_data.get("groups", []):
         if group_id not in bot_data.get("watchlist", {}):
+            default_stocks = ["2330", "2317", "2454", "2603", "0050"]
             today = datetime.now().strftime("%m/%d")
             lines = [f"📋 {today} 盤後摘要\n━━━━━━━━━━━━━━"]
             for sid in default_stocks:
@@ -597,10 +589,7 @@ def handle_follow(event):
 # 背景排程
 # ============================================================
 def run_scheduler():
-    # 每 1 分鐘檢查到價通知（盤中）
     schedule.every(1).minutes.do(check_alerts)
-
-    # 每日下午 1:35 推播盤後摘要（台股 1:30 收盤）
     schedule.every().day.at("13:35").do(daily_custom_push)
 
     while True:
@@ -618,7 +607,4 @@ if __name__ == "__main__":
 
     port = int(os.getenv("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
-    logger.info("📡 排程啟動完成")
 
-    port = int(os.getenv("PORT", 8000))
-    app.run(host="0.0.0.0", port=port)
