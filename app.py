@@ -433,14 +433,14 @@ def parse_command(text: str, source_id: str) -> str:
     # 取消追蹤（要放在「追蹤」前面）
     if text.startswith("取消追蹤 ") or text.startswith("取消追蹤"):
         stock_id = text.replace("取消追蹤 ", "").replace("取消追蹤", "").strip()
-        if stock_id.isdigit() and len(stock_id) == 4:
+        if stock_id.isdigit() and len(stock_id) <= 6:
             return remove_watchlist(source_id, stock_id)
         return "❌ 格式錯誤\n範例：取消追蹤 2330"
 
     # 追蹤股票
     if text.startswith("追蹤 ") or text.startswith("追蹤"):
         stock_id = text.replace("追蹤 ", "").replace("追蹤", "").strip()
-        if stock_id.isdigit() and len(stock_id) == 4:
+        if stock_id.isdigit() and len(stock_id) <= 6:
             return add_watchlist(source_id, stock_id)
         return "❌ 格式錯誤\n範例：追蹤 2330"
 
