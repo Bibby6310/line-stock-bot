@@ -142,17 +142,48 @@ def format_stock_info(info: dict) -> str:
 # ============================================================
 def ask_ai(question: str) -> str:
     # 優先用 Gemini（免費）
-   GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
     if GEMINI_API_KEY:
+        # 先列出可用模型
         try:
             list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
             list_resp = requests.get(list_url, timeout=10)
-            models = [m.get("name", "") for m in list_resp.json().get("models", [])]
-            logger.info(f"Gemini 可用模型: {models[:10]}")
+            models_data = list_resp.json()
+            model_names = [m.get("name", "") for m in models_data.get("models", [])]
+            logger.info(f"Gemini 可用模型: {model_names[:15]}")
         except Exception as e:
             logger.error(f"列出模型失敗: {e}")
+            model_names = []
+
+        # 自動選擇可用的模型
+        preferred_models = [
+            "models/gemini-2.0-flash",
+            "models/gemini-1.5-flash",
+            "models/gemini-1.5-flash-latest",
+            "models/gemini-pro",
+            "models/gemini-1.0-pro",
+        ]
+        chosen_model = None
+        for m in preferred_models:
+            if m in model_names:
+                chosen_model = m
+                break
+
+        if not chosen_model and model_names:
+            # 找任何一個支援 generateContent 的模型
+            for m in model_names:
+                if "gemini" in m:
+                    chosen_model = m
+                    break
+
+        if not chosen_model:
+            logger.error(f"找不到可用的 Gemini 模型")
+            return "🤖 Gemini 沒有可用模型，請確認 API Key。"
+
+        logger.info(f"使用模型: {chosen_model}")
+
         try:
-            url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/{chosen_model}:generateContent?key={GEMINI_API_KEY}"
             resp = requests.post(
                 url,
                 headers={"Content-Type": "application/json"},
@@ -614,4 +645,3 @@ if __name__ == "__main__":
 
     port = int(os.getenv("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
-
