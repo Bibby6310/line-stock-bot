@@ -155,11 +155,17 @@ def ask_ai(question: str) -> str:
                 },
                 timeout=30,
             )
-            data = resp.json()
-            return data["candidates"][0]["content"]["parts"][0]["text"]
+        data = resp.json()
+            logger.info(f"Gemini 回應: {json.dumps(data, ensure_ascii=False)[:500]}")
+            if "candidates" in data:
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+            elif "error" in data:
+                logger.error(f"Gemini 錯誤: {data['error']}")
+                return f"🤖 AI 錯誤：{data['error'].get('message', '未知錯誤')}"
+            else:
+                return "🤖 AI 回應格式異常，請稍後再試。"
         except Exception as e:
             logger.error(f"Gemini 問答失敗: {e}")
-            return "🤖 AI 暫時無法回應，請稍後再試。"
 
     # 備用：OpenAI
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
